@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Контроль задолженности</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a; --border: #2e3352;
+  --text: #e8eaf2; --muted: #7b82a3;
+  --green: #22c55e; --green-bg: #0d2b1a;
+  --yellow: #eab308; --yellow-bg: #2a2300;
+  --orange: #f97316; --orange-bg: #2a1200;
+  --red: #ef4444; --red-bg: #2a0a0a;
+  --accent: #6366f1; --accent-light: #818cf8;
+  --radius: 12px; --font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+}
+body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 40px; }
+
+.header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 20px; position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; }
+.logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+.logo span { color: var(--accent-light); }
+.report-date { font-size: 12px; color: var(--muted); }
+
+.upload-zone { margin: 24px 16px; border: 2px dashed var(--border); border-radius: var(--radius); padding: 40px 20px; text-align: center; background: var(--surface); cursor: pointer; transition: border-color 0.2s; }
+.upload-zone.drag { border-color: var(--accent); }
+.upload-icon { font-size: 44px; margin-bottom: 14px; }
+.upload-title { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+.upload-hint { font-size: 13px; color: var(--muted); margin-bottom: 18px; line-height: 1.5; }
+.upload-btn { background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 12px 28px; font-size: 15px; font-weight: 700; cursor: pointer; font-family: var(--font); }
+#fileInput { display: none; }
+
+.summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 20px 16px; }
+.s-card { border-radius: var(--radius); padding: 14px 12px; border: 1px solid transparent; cursor: pointer; transition: opacity 0.15s; }
+.s-card:active { opacity: 0.75; }
+.s-label { font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; margin-bottom: 5px; }
+.s-amount { font-size: 18px; font-weight: 800; margin-bottom: 3px; letter-spacing: -0.5px; }
+.s-count { font-size: 12px; opacity: 0.75; }
+.s-green { background: var(--green-bg); border-color: var(--green); }
+.s-green .s-label, .s-green .s-amount { color: var(--green); }
+.s-yellow { background: var(--yellow-bg); border-color: var(--yellow); }
+.s-yellow .s-label, .s-yellow .s-amount { color: var(--yellow); }
+.s-orange { background: var(--orange-bg); border-color: var(--orange); }
+.s-orange .s-label, .s-orange .s-amount { color: var(--orange); }
+.s-red { background: var(--red-bg); border-color: var(--red); }
+.s-red .s-label, .s-red .s-amount { color: var(--red); }
+
+.tabs { display: flex; gap: 6px; margin: 0 16px 14px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex-shrink: 0; padding: 7px 13px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1.5px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 5px; }
+.tab .badge { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 10px; background: var(--border); color: var(--muted); }
+.tab.act-green { border-color: var(--green); color: var(--green); background: var(--green-bg); }
+.tab.act-green .badge { background: var(--green); color: #000; }
+.tab.act-yellow { border-color: var(--yellow); color: var(--yellow); background: var(--yellow-bg); }
+.tab.act-yellow .badge { background: var(--yellow); color: #000; }
+.tab.act-orange { border-color: var(--orange); color: var(--orange); background: var(--orange-bg); }
+.tab.act-orange .badge { background: var(--orange); color: #fff; }
+.tab.act-red { border-color: var(--red); color: var(--red); background: var(--red-bg); }
+.tab.act-red .badge { background: var(--red); color: #fff; }
+
+.search-wrap { margin: 0 16px 12px; position: relative; }
+.search-input { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); padding: 10px 14px 10px 36px; font-size: 14px; font-family: var(--font); }
+.search-input:focus { outline: none; border-color: var(--accent); }
+.search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 15px; pointer-events: none; }
+.section-title { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; margin: 0 16px 10px; }
+
+.client-list { margin: 0 16px; }
+.client-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
+.client-header { display: flex; align-items: center; justify-content: space-between; padding: 13px 14px; cursor: pointer; gap: 10px; }
+.client-name { font-size: 14px; font-weight: 700; margin-bottom: 2px; line-height: 1.3; }
+.client-meta { font-size: 12px; color: var(--muted); }
+.client-right { text-align: right; flex-shrink: 0; }
+.client-amount { font-size: 15px; font-weight: 800; margin-bottom: 3px; }
+.days-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; display: inline-block; }
+.c-green .client-amount { color: var(--green); } .c-green .days-badge { color: var(--green); background: var(--green-bg); }
+.c-yellow .client-amount { color: var(--yellow); } .c-yellow .days-badge { color: var(--yellow); background: var(--yellow-bg); }
+.c-orange .client-amount { color: var(--orange); } .c-orange .days-badge { color: var(--orange); background: var(--orange-bg); }
+.c-red .client-amount { color: var(--red); } .c-red .days-badge { color: var(--red); background: var(--red-bg); }
+
+.invoices { display: none; border-top: 1px solid var(--border); }
+.invoice-row { padding: 11px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.invoice-row:last-child { border-bottom: none; }
+.inv-num { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+.inv-date { font-size: 11px; color: var(--muted); }
+.inv-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.inv-amount { font-size: 13px; font-weight: 700; }
+.sms-btn { background: var(--accent); border: none; border-radius: 7px; color: #fff; font-size: 11px; font-weight: 700; padding: 5px 9px; cursor: pointer; font-family: var(--font); white-space: nowrap; }
+.sms-btn:active { opacity: 0.8; }
+
+.modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 200; align-items: flex-end; justify-content: center; }
+.modal-bg.open { display: flex; }
+.modal { background: var(--surface); border-radius: 20px 20px 0 0; padding: 20px 20px 44px; width: 100%; max-width: 600px; border: 1px solid var(--border); animation: up 0.22s ease; }
+@keyframes up { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.modal-handle { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 18px; }
+.modal-title { font-size: 16px; font-weight: 700; margin-bottom: 14px; }
+.modal-msg { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; font-size: 14px; line-height: 1.65; color: var(--text); margin-bottom: 14px; white-space: pre-line; }
+.modal-actions { display: flex; gap: 10px; }
+.btn-copy { flex: 1; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 14px; font-size: 15px; font-weight: 700; cursor: pointer; font-family: var(--font); }
+.btn-close { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; font-size: 15px; cursor: pointer; font-family: var(--font); }
+.copy-ok { text-align: center; font-size: 13px; color: var(--green); margin-top: 10px; display: none; }
+.empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+.empty-icon { font-size: 44px; margin-bottom: 12px; }
+.empty-text { font-size: 15px; font-weight: 500; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">Долги<span>Контроль</span></div>
+  <div class="report-date" id="reportDate"></div>
+</div>
+
+<div class="upload-zone" id="uploadZone">
+  <div class="upload-icon">📊</div>
+  <div class="upload-title">Загрузите отчёт из 1С</div>
+  <div class="upload-hint">Файл «Задолженность клиентов по срокам»<br>в формате .xlsx или .xls</div>
+  <button class="upload-btn" onclick="document.getElementById('fileInput').click()">Выбрать файл</button>
+  <input type="file" id="fileInput" accept=".xlsx,.xls">
+</div>
+
+<div class="summary" id="summary" style="display:none">
+  <div class="s-card s-green" onclick="switchTab('green')">
+    <div class="s-label">✅ Норма</div>
+    <div class="s-amount" id="sumGreen">0</div>
+    <div class="s-count" id="cntGreen">0 клиентов</div>
+  </div>
+  <div class="s-card s-yellow" onclick="switchTab('yellow')">
+    <div class="s-label">⚠️ Умеренная</div>
+    <div class="s-amount" id="sumYellow">0</div>
+    <div class="s-count" id="cntYellow">0 клиентов</div>
+  </div>
+  <div class="s-card s-orange" onclick="switchTab('orange')">
+    <div class="s-label">🟠 Просрочка 1–7д</div>
+    <div class="s-amount" id="sumOrange">0</div>
+    <div class="s-count" id="cntOrange">0 клиентов</div>
+  </div>
+  <div class="s-card s-red" onclick="switchTab('red')">
+    <div class="s-label">🔴 Красная зона</div>
+    <div class="s-amount" id="sumRed">0</div>
+    <div class="s-count" id="cntRed">0 клиентов</div>
+  </div>
+</div>
+
+<div class="tabs" id="tabs" style="display:none">
+  <div class="tab" data-cat="green" onclick="switchTab('green')">✅ Норма <span class="badge" id="tGreen">0</span></div>
+  <div class="tab" data-cat="yellow" onclick="switchTab('yellow')">⚠️ Умеренная <span class="badge" id="tYellow">0</span></div>
+  <div class="tab" data-cat="orange" onclick="switchTab('orange')">🟠 1–7 дней <span class="badge" id="tOrange">0</span></div>
+  <div class="tab" data-cat="red" onclick="switchTab('red')">🔴 Красная <span class="badge" id="tRed">0</span></div>
+</div>
+
+<div class="search-wrap" id="searchWrap" style="display:none">
+  <span class="search-icon">🔍</span>
+  <input class="search-input" id="searchInput" placeholder="Поиск по клиенту..." oninput="renderClients()">
+</div>
+<div class="section-title" id="sectionTitle" style="display:none"></div>
+<div class="client-list" id="clientList"></div>
+
+<div class="modal-bg" id="modalBg" onclick="bgClick(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📩 Сообщение клиенту</div>
+    <div class="modal-msg" id="smsText"></div>
+    <div class="modal-actions">
+      <button class="btn-close" onclick="closeModal()">Закрыть</button>
+      <button class="btn-copy" onclick="copyMsg()">📋 Копировать</button>
+    </div>
+    <div class="copy-ok" id="copyOk">✅ Скопировано!</div>
+  </div>
+</div>
+
+<script>
+let cats = { green: [], yellow: [], orange: [], red: [] };
+let activeTab = 'red';
+
+const catInfo = {
+  green:  { label: '✅ Нормальная задолженность (до 14 дней)' },
+  yellow: { label: '⚠️ Умеренная задолженность (15–21 день)' },
+  orange: { label: '🟠 Просрочка 1–7 дней (22–28 дней)' },
+  red:    { label: '🔴 Красная зона — срочно! (29+ дней)' }
+};
+
+const zone = document.getElementById('uploadZone');
+const fi = document.getElementById('fileInput');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag'); if(e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]); });
+fi.addEventListener('change', e => { if(e.target.files[0]) readFile(e.target.files[0]); });
+
+function readFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'binary' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      parse1C(rows);
+    } catch(err) {
+      alert('Ошибка чтения файла: ' + err.message);
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+function parse1C(rows) {
+  cats = { green: [], yellow: [], orange: [], red: [] };
+
+  // Extract report date
+  rows.forEach(r => {
+    const s = r.join('\t');
+    const m = s.match(/Дата отчета[:\s]+(\d{2}\.\d{2}\.\d{4})/);
+    if (m) document.getElementById('reportDate').textContent = 'Отчёт: ' + m[1];
+  });
+
+  let currentClient = null;
+  const clientMap = {};
+
+  rows.forEach(row => {
+    const c0 = String(row[0] || '').trim();
+    const c2 = String(row[2] || '').trim();
+
+    // Get all numeric values from the row
+    const nums = [];
+    row.forEach(v => {
+      const n = parseFloat(String(v).replace(',','.'));
+      if (!isNaN(n) && n > 0) nums.push(n);
+    });
+
+    const isNumbered = /^\d+$/.test(c0);
+    const isInvoice = c2.includes('Реализация');
+
+    if (isNumbered && !isInvoice && c2.length > 2) {
+      // Client row
+      const days = nums.length ? Math.round(nums[nums.length - 1]) : 0;
+      const amount = nums.length >= 2 ? nums[nums.length - 2] : (nums[0] || 0);
+      const name = cleanName(c2);
+      if (!clientMap[name]) {
+        clientMap[name] = { name, invoices: [], maxDays: days, total: amount };
+      }
+      currentClient = clientMap[name];
+
+    } else if (isNumbered && isInvoice && currentClient) {
+      // Invoice row
+      const numMatch = c2.match(/([А-ЯA-Z]{2,}\d*-\d+)/i);
+      const invoiceNum = numMatch ? numMatch[1] : c2.substring(0, 25);
+      const dateMatch = c2.match(/от\s+(\d{2}\.\d{2}\.\d{4})/);
+      const invoiceDate = dateMatch ? dateMatch[1] : '';
+      // Due date: look for date pattern in columns after index 5
+      let dueDate = '';
+      for (let i = 5; i < row.length; i++) {
+        const v = String(row[i] || '').trim();
+        if (/^\d{2}\.\d{2}\.\d{4}$/.test(v)) { dueDate = v; break; }
+      }
+      const days = nums.length ? Math.round(nums[nums.length - 1]) : 0;
+      const amount = nums.length >= 2 ? nums[nums.length - 2] : (nums[0] || 0);
+
+      currentClient.invoices.push({ num: invoiceNum, date: invoiceDate, dueDate, amount, days });
+    }
+  });
+
+  Object.values(clientMap).forEach(c => {
+    if (!c.invoices.length) return;
+    const d = c.maxDays;
+    if (d <= 14) cats.green.push(c);
+    else if (d <= 21) cats.yellow.push(c);
+    else if (d <= 28) cats.orange.push(c);
+    else cats.red.push(c);
+  });
+
+  Object.values(cats).forEach(arr => arr.sort((a,b) => b.total - a.total));
+
+  renderSummary();
+  zone.style.display = 'none';
+  document.getElementById('summary').style.display = 'grid';
+  document.getElementById('tabs').style.display = 'flex';
+  document.getElementById('searchWrap').style.display = 'block';
+  document.getElementById('sectionTitle').style.display = 'block';
+  switchTab('red');
+}
+
+function cleanName(s) {
+  return s.replace(/\s+(г\b|г,|ул\.|ул,|пгт\.|пгт,|Ялта|Симферополь|Симеиз|Алушта|Евпатория).*/i, '').trim();
+}
+
+function fmt(n) {
+  return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(n)) + ' ₸';
+}
+
+function renderSummary() {
+  ['green','yellow','orange','red'].forEach(c => {
+    const list = cats[c];
+    const total = list.reduce((s, cl) => s + cl.total, 0);
+    const cap = c[0].toUpperCase() + c.slice(1);
+    document.getElementById('sum' + cap).textContent = fmt(total);
+    document.getElementById('cnt' + cap).textContent = list.length + ' кл.';
+    document.getElementById('t' + cap).textContent = list.length;
+  });
+}
+
+function switchTab(cat) {
+  activeTab = cat;
+  document.querySelectorAll('.tab').forEach(t => {
+    t.className = 'tab' + (t.dataset.cat === cat ? ' act-' + cat : '');
+  });
+  document.getElementById('sectionTitle').textContent = catInfo[cat].label;
+  document.getElementById('searchInput').value = '';
+  renderClients();
+}
+
+function renderClients() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const list = cats[activeTab].filter(c => c.name.toLowerCase().includes(q));
+  const el = document.getElementById('clientList');
+
+  if (!list.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">🎉</div><div class="empty-text">Клиентов в этой категории нет</div></div>';
+    return;
+  }
+
+  el.innerHTML = list.map((c, i) => {
+    const uid = activeTab + '_' + i;
+    return '<div class="client-card c-' + activeTab + '">' +
+      '<div class="client-header" onclick="toggle(\'' + uid + '\')">' +
+        '<div style="min-width:0">' +
+          '<div class="client-name">' + c.name + '</div>' +
+          '<div class="client-meta">' + c.invoices.length + ' накл. · макс. ' + c.maxDays + ' дн.</div>' +
+        '</div>' +
+        '<div class="client-right">' +
+          '<div class="client-amount">' + fmt(c.total) + '</div>' +
+          '<span class="days-badge">' + c.maxDays + ' дн.</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="invoices" id="' + uid + '">' +
+        c.invoices.map(inv => {
+          const dateStr = inv.date ? 'от ' + inv.date : '';
+          const dueStr = inv.dueDate ? ' · погаш. ' + inv.dueDate : '';
+          const safeClient = c.name.replace(/'/g, '&#39;');
+          const safeNum = inv.num.replace(/'/g, '&#39;');
+          const safeDate = (inv.date || inv.dueDate).replace(/'/g, '&#39;');
+          const safeAmt = fmt(inv.amount).replace(/'/g, '&#39;');
+          return '<div class="invoice-row">' +
+            '<div>' +
+              '<div class="inv-num">№ ' + inv.num + '</div>' +
+              '<div class="inv-date">' + dateStr + dueStr + ' · ' + inv.days + ' дн.</div>' +
+            '</div>' +
+            '<div class="inv-right">' +
+              '<div class="inv-amount">' + fmt(inv.amount) + '</div>' +
+              '<button class="sms-btn" onclick="openSMS(\'' + safeClient + '\',\'' + safeNum + '\',\'' + safeDate + '\',\'' + safeAmt + '\',' + inv.days + ')">SMS</button>' +
+            '</div>' +
+          '</div>';
+        }).join('') +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function toggle(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+
+function openSMS(client, invoice, date, amount, days) {
+  const urgent = days >= 29 ? '❗️ СРОЧНО: задолженность значительно просрочена!\n\n' : '';
+  const text = urgent +
+    'Уважаемый партнёр,\n\n' +
+    'напоминаем о задолженности:\n\n' +
+    '🏢 Клиент: ' + client + '\n' +
+    '📄 Накладная: № ' + invoice + '\n' +
+    '📅 Дата: ' + date + '\n' +
+    '💰 Сумма: ' + amount + '\n' +
+    '⏱ Просрочено: ' + days + ' дн.\n\n' +
+    'Просим произвести оплату в ближайшее время.\n\n' +
+    'С уважением, отдел финансового контроля';
+  document.getElementById('smsText').textContent = text;
+  document.getElementById('copyOk').style.display = 'none';
+  document.getElementById('modalBg').classList.add('open');
+}
+
+function bgClick(e) { if (e.target === document.getElementById('modalBg')) closeModal(); }
+function closeModal() { document.getElementById('modalBg').classList.remove('open'); }
+
+function copyMsg() {
+  const text = document.getElementById('smsText').textContent;
+  const ok = () => {
+    document.getElementById('copyOk').style.display = 'block';
+    setTimeout(() => document.getElementById('copyOk').style.display = 'none', 2500);
+  };
+  if (navigator.clipboard) { navigator.clipboard.writeText(text).then(ok); }
+  else {
+    const t = document.createElement('textarea');
+    t.value = text; t.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(t); t.select(); document.execCommand('copy');
+    document.body.removeChild(t); ok();
+  }
+}
+</script>
+</body>
+</html>
